@@ -51,3 +51,24 @@ Often servers are addressed by using the base URL like <http://webserver/> where
 Of course we like the user to be redirected to something usable. 
 The `handleRoot()` function checks the filesystem for the file named **/index.htm** and creates a redirect to this file when the file exists.
 Otherwise the redirection goes to the built-in **/$upload.htm** web page.
+
+The example also implements the class `FileServerHandler` derived from the class `RequestHandler` to plug in functionality
+that can handle more complex requests without giving a fixed URL.
+It implements uploading and deleting files in the file system that is not implemented by the standard server.serveStatic functionality.
+
+This class has to implements several functions and works in a more detailed way:
+
+* The `canHandle()` method can inspect the given http method and url to decide weather the RequestFileHandler can handle the incoming request or not.
+
+  In this case the RequestFileHandler will return true when the request method is an POST for upload or a DELETE for deleting files.
+
+  The regular GET requests will be ignored and therefore handled by the also registered server.serveStatic handler.
+
+* The function `handle()` then implements the real deletion of the file.
+
+* The `canUpload()`and `upload()` methods work similar while the `upload()` method is called multiple times to create, append data and close the new file.
+
+Any other incoming request that was not handled by the registered plug-ins above can be detected by registering 
+
+This allows sending back an "friendly" result for the browser. Here a sim ple html page is created from a static string.
+You can easily change the html code in the file `builtinfiles.h`.
