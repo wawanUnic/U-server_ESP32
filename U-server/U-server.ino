@@ -1,23 +1,15 @@
-// @file WebServer.ino
-// @brief Example implementation using the ESP8266 WebServer.
-//
-// See also README.md for instructions and hints.
-//
-// Changelog:
-// 21.07.2021 creation, first version
-
 #include <Arduino.h>
 #include <ESP8266WebServer.h>
-
-#include "secrets.h"  // add WLAN Credentials in here.
-
-#include <FS.h>        // File System for Web Server Files
-#include <LittleFS.h>  // This file system is used.
-
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
+#include <TimeLib.h>
+#include <uptime_formatter.h>
+#include <FS.h>        // File System for Web Server Files
+#include <LittleFS.h>  // This file system is used.
+
+#include "secrets.h"  // add WLAN Credentials in here
 
 // mark parameters not used in example
 #define UNUSED __attribute__((unused))
@@ -28,19 +20,15 @@
 // name of the server. You reach it using http://webserver
 #define HOSTNAME "u-server1"
 
-// local time zone definition
-#define TIMEZONE "CET-1CEST,M3.5.0,M10.5.0/3"
-
 // need a WebServer for http access on port 80.
 ESP8266WebServer server(80);
-
-// The text of builtin files are in this header file
-#include "builtinfiles.h"
 
 // переменные для мигания светодоиодом
 unsigned long previousMillis = 0;  // хранит время последнего обновления светодиода
 const long interval = 1000;        // интервал мигания (миллисекунды)
 int ledState = LOW;                // ledState используется для установки состояния светодиода
+
+#include "builtinfiles.h" // The text of builtin files are in this header file
 
 // ===== Simple functions used to answer simple GET requests =====
 
@@ -48,64 +36,19 @@ int ledState = LOW;                // ledState используется для �
 // This will redirect to the file index.htm when it is existing otherwise to the built-in $upload.htm page
 void handleRedirect() {
   TRACE("Redirect...");
-  String url = "/index.htm";
+  String url = "/index.html";
 
-  if (!LittleFS.exists(url)) { url = "/$update.htm"; }
+  if (!LittleFS.exists(url)) { url = "/$notfound"; }
 
   server.sendHeader("Location", url, true);
   server.send(302);
-}  // handleRedirect()
+}
 
-
-// This function is called when the WebServer was requested to list all existing files in the filesystem.
-// a JSON array with file information is returned.
-void handleListFiles() {
-  Dir dir = LittleFS.openDir("/");
-  String result;
-
-  result += "[\n";
-  while (dir.next()) {
-    if (result.length() > 4) { result += ","; }
-    result += "  {";
-    result += " \"name\": \"" + dir.fileName() + "\", ";
-    result += " \"size\": " + String(dir.fileSize()) + ", ";
-    result += " \"time\": " + String(dir.fileTime());
-    result += " }\n";
-    // jc.addProperty("size", dir.fileSize());
-  }  // while
-  result += "]";
-  server.sendHeader("Cache-Control", "no-cache");
-  server.sendHeader("Refresh", "3");
-  server.send(200, "text/javascript; charset=utf-8", result);
-}  // handleListFiles()
-
-
-// This function is called when the sysInfo service was requested.
-void handleSysInfo() {
-  String result;
-
-  FSInfo fs_info;
-  LittleFS.info(fs_info);
-
-  result += "{\n";
-  result += "  \"flashSize\": " + String(ESP.getFlashChipSize()) + ",\n";
-  result += "  \"freeHeap\": " + String(ESP.getFreeHeap()) + ",\n";
-  result += "  \"fsTotalBytes\": " + String(fs_info.totalBytes) + ",\n";
-  result += "  \"fsUsedBytes\": " + String(fs_info.usedBytes) + ",\n";
-  result += "}";
-
-  server.sendHeader("Cache-Control", "no-cache");
-  server.sendHeader("Refresh", "3");
-  server.send(200, "text/javascript; charset=utf-8", result);
-}  // handleSysInfo()
-
-// This function is called when the format service was requested.
 void handleFormatStart() {
   LittleFS.format();
   server.sendHeader("Cache-Control", "no-cache");
   server.send(200, "text/html", FPSTR(formatStart));
-}  // handleFormatStart()
-
+}
 
 // ===== Request Handler class used to answer more complex requests =====
 
@@ -185,7 +128,7 @@ void setup(void) {
   pinMode(LED_BUILTIN, OUTPUT);
 
   // Аутентификация по умолчанию
-  ArduinoOTA.setPassword("admin");
+  ArduinoOTA.setPassword(passwordOTA);
 
   delay(3000);  // wait for serial monitor to start completely.
 
@@ -204,6 +147,7 @@ void setup(void) {
 
   // start WiFI
   WiFi.mode(WIFI_STA);
+  WiFi.hostname(newHostName.c_str());
   if (strlen(ssid) == 0) {
     WiFi.begin();
   } else {
@@ -211,7 +155,7 @@ void setup(void) {
   }
 
   // allow to address the device by the given name e.g. http://webserver
-  WiFi.setHostname(HOSTNAME);
+  MDNS.begin(newDnsName);
 
   TRACE("Connect to WiFi...\n");
   while (WiFi.status() != WL_CONNECTED) {
@@ -222,27 +166,23 @@ void setup(void) {
 
   // Ask for the current time using NTP request builtin into ESP firmware.
   TRACE("Setup ntp...\n");
-  configTime(TIMEZONE, "pool.ntp.org");
+  //const char *TZstr = "CST+6CDT,M3.2.0/2,M11.1.0/2";
+  const char *TZstr = "CET";
+  configTime (TZstr, "pool.ntp.org");
+  //configTime(TIMEZONE, "pool.ntp.org");
+  //configTime(3600, 0, "pool.ntp.org");
 
   TRACE("Register service handlers...\n");
 
-  // serve a built-in htm page1
-  server.on("/$upload.htm", []() {
-    server.send(200, "text/html", FPSTR(uploadContent));
-  });
-
-  // serve a built-in htm page2
-  server.on("/$format", []() {
-    server.send(200, "text/html", FPSTR(formatContent));
-  });
+  server.on("/", HTTP_GET, handleRedirect);
+  server.on("/$universalwebserver", []() { server.send(200, "text/html", FPSTR(universalWebServer)); });
+  server.on("/$list", HTTP_GET, handleListFiles);
+  server.on("/$systeminfo", HTTP_GET, handleSysInfo);
+  server.on("/$format", []() { server.send(200, "text/html", FPSTR(formatContent)); });
+  server.on("/$formatstart", HTTP_GET, handleFormatStart);
+  server.on("/$upload", []() { server.send(200, "text/html", FPSTR(uploadContent)); });
 
   // register a redirect handler when only domain name is given.
-  server.on("/", HTTP_GET, handleRedirect);
-
-  // register some REST services
-  server.on("/$list", HTTP_GET, handleListFiles);
-  server.on("/$sysinfo", HTTP_GET, handleSysInfo);
-  server.on("/$formatstart", HTTP_GET, handleFormatStart);
 
   // UPLOAD and DELETE of files in the file system using a request handler.
   server.addHandler(new FileServerHandler());
@@ -256,36 +196,26 @@ void setup(void) {
   // serve all static files
   server.serveStatic("/", LittleFS, "/");
 
-  // handle cases when file is not found
-  server.onNotFound([]() {
-    // standard not found in browser.
-    server.send(404, "text/html", FPSTR(notFoundContent));
-  });
+  server.onNotFound([]() { server.send(404, "text/html", FPSTR(notFoundContent)); });
 
   ArduinoOTA.begin();
 
   server.begin();
-  TRACE("hostname=%s\n", WiFi.getHostname());
-}  // setup
+  TRACE("ip = %s\n", WiFi.localIP());
+  TRACE("hostname = %s\n", WiFi.getHostname());
+  MDNS.addService("http","tcp",80);
+}
 
-
-// run the server...
 void loop(void) {
   server.handleClient();
-
   ArduinoOTA.handle();
+  MDNS.update();
 
-  // цикл для мигания без использования задержек
-  unsigned long currentMillis = millis();
+  unsigned long currentMillis = millis(); // цикл для мигания без использования задержек
   if (currentMillis - previousMillis >= interval) 
   {
-    // сохранить последнее внемя, когда мигнули светодиодом
-    previousMillis = currentMillis;
-    // если светодиод погашен, включить его, и наоборот
-    ledState = not(ledState);
-    // установить состояние светодиода в соответствии с переменной
-    digitalWrite(LED_BUILTIN,  ledState);
+    previousMillis = currentMillis; // сохранить последнее внемя, когда мигнули светодиодом
+    ledState = not(ledState); // если светодиод погашен, включить его, и наоборот
+    digitalWrite(LED_BUILTIN,  ledState); // установить состояние светодиода в соответствии с переменной
   }
-}  // loop()
-
-// end.
+}
